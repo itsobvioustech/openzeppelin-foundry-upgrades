@@ -352,7 +352,11 @@ library Upgrades {
      */
     function deployImplementation(string memory contractName, Options memory opts) internal returns (address) {
         validateImplementation(contractName, opts);
-        return _deploy(contractName, opts.constructorData);
+        if (opts.salt == 0) {
+            return _deploy(contractName, opts.constructorData);
+        } else {
+            return _deployWithCreate2(contractName, opts.constructorData, opts.salt);
+        }
     }
 
     /**
@@ -468,7 +472,7 @@ library Upgrades {
         string memory contractName,
         Options memory opts,
         bool requireReference
-    ) private returns (string[] memory) {
+    ) private view returns (string[] memory) {
         string memory outDir = Utils.getOutDir();
 
         string[] memory inputBuilder = new string[](255);
@@ -535,4 +539,29 @@ library Upgrades {
         }
         return addr;
     }
+
+    function _deployWithCreate2(string memory contractName, bytes memory constructorData, bytes32 salt) private returns (address) {
+        bytes memory creationCode = Vm(CHEATCODE_ADDRESS).getCode(contractName);
+        address deployedAddress = _deployFromBytecodeWithCreate2(abi.encodePacked(creationCode, constructorData), uint256(salt));
+        if (deployedAddress == address(0)) {
+            revert(
+                string.concat(
+                    "Failed to deploy contract ",
+                    contractName,
+                    ' using constructor data "',
+                    string(constructorData),
+                    '"'
+                )
+            );
+        }
+        return deployedAddress;
+    }
+
+    function _deployFromBytecodeWithCreate2(bytes memory bytecode, uint256 salt) private returns (address) {
+        address addr;
+        assembly {
+            addr := create2(0, add(bytecode, 32), mload(bytecode), salt)
+        }
+        return addr;
+    }    
 }
